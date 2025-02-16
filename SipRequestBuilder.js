@@ -1,15 +1,3 @@
-/**
- * SipRequestBuilder.js
- *
- * Builds a SIP message by:
- *   - Listing all headers,
- *   - Adding exactly one blank line,
- *   - Appending the body (even if empty),
- *   - Using '\r\n' as the line separator.
- *
- * This approach "works" for your environment. 
- */
-
 const Logger = require('./Logger');
 
 class SipRequestBuilder {
@@ -59,12 +47,11 @@ class SipRequestBuilder {
     const bodyContent  = this.body;
     let length         = bodyContent.length; // number of bytes in the body
 
-    // We'll accumulate headers into this array
+    // Headers array
     let lines = [];
 
     switch (this.method) {
       case 'REGISTER': {
-        // Typically no body => length=0
         lines = [
           `${this.method} sip:${this.domain} SIP/2.0`,
           viaHeader,
@@ -82,7 +69,6 @@ class SipRequestBuilder {
       }
 
       case 'MESSAGE': {
-        // Usually some text body => length > 0
         const contentTypeHeader = `Content-Type: ${this.contentType}`;
         lines = [
           `${this.method} sip:${this.toUser}@${this.domain} SIP/2.0`,
@@ -99,7 +85,6 @@ class SipRequestBuilder {
       }
 
       case 'INVITE': {
-        // Minimal body (SDP?), or possibly empty
         const contentTypeHeader = `Content-Type: application/sdp`; 
         lines = [
           `${this.method} sip:${this.toUser}@${this.domain} SIP/2.0`,
@@ -117,8 +102,7 @@ class SipRequestBuilder {
       }
 
       case 'ACK': {
-        // Typically no body => length=0
-        length = 0; // force no body for ACK
+        length = 0; 
         lines = [
           `${this.method} sip:${this.toUser}@${this.domain} SIP/2.0`,
           viaHeader,
