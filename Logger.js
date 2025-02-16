@@ -1,8 +1,3 @@
-/**
- * Logger.js
- *
- * Provides a Logger class with colorized output, including file and line info.
- */
 class Logger {
     static log(level, message) {
       const { fileInfo, lineNumber } = this._getCallerInfo();

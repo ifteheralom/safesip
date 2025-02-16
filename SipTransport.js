@@ -1,6 +1,3 @@
-/**
- * SipTransport.js
- */
 const dgram = require('dgram');
 const Logger = require('./Logger');
 

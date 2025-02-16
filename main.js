@@ -1,13 +1,3 @@
-/**
- * main.js
- *
- * Minimal code:
- *  - Parse CLI
- *  - Create a SipClient
- *  - Start the client
- *  - On SIGINT, close
- */
-
 const Logger = require('./Logger');
 const SipClient = require('./SipClient');
 

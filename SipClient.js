@@ -1,15 +1,3 @@
-/**
- * SipClient.js
- *
- * A refactored, more readable version of the SIP client class.
- * It orchestrates:
- *   - Registration & re-REGISTER keep-alive
- *   - Digest Authentication on 401/407
- *   - Sending MESSAGE or INVITE (plus ACK)
- *   - Inbound request handling (respond 200 OK)
- *   - Ties into SipTransport and SipRequestBuilder
- */
-
 const crypto = require('crypto');
 const Logger = require('./Logger');
 const SipRequestBuilder = require('./SipRequestBuilder');

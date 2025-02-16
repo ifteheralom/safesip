@@ -1,9 +1,3 @@
-/**
- * config.js
- *
- * Basic configuration for the SIP client.
- */
-
 module.exports = {
   SIP_SERVER_HOST: 'testsip',
   SIP_SERVER_PORT: 5060,
