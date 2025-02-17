@@ -125,21 +125,13 @@ class SipClient {
   _handleRequest({ method, messageLines, rinfo }) {
     Logger.info(`Inbound SIP request: ${method} from ${rinfo.address}:${rinfo.port}`);
 
-    // We'll respond with a single "full" 200 OK for all methods
-    // If it's INVITE, you can add a Contact or body if desired
     const ok = this._build200OkResponse(messageLines);
-    // console.log(ok)
-
+    
     this.transport.sendPacket(ok, rinfo.address, rinfo.port, () => {
       Logger.info(`Sent full 200 OK for inbound ${method} request`);
     });
   }
 
-  /**
-   * Build a single "full" 200 OK. 
-   * Skips angle bracket logic; we just parse from/to, ensure the 'To' has a tag.
-   * Also includes "Server: Node-SIP-Demo".
-   */
   _build200OkResponse(requestLines) {
     console.log(requestLines)
     console.log(requestLines.find(l => l.toLowerCase().startsWith('via:')))
