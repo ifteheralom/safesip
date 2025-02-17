@@ -23,7 +23,6 @@ class SipClient {
     messageBody = '',
     mode = 'rcv',
   }) {
-    // Basic info
     this.fromUser    = fromUser;
     this.password    = password;
     this.localPort   = localPort;
@@ -50,40 +49,29 @@ class SipClient {
     this.transport.onRequest  = (req) => this._handleRequest(req);
   }
 
-  /**
-   * Start the client: bind the socket, do initial REGISTER,
-   * and if in "rcv" mode keep re-registering.
-   * If in "send" mode, send MESSAGE or INVITE after a short delay.
-   */
   start() {
+    // Bind, send REGISTER, keep alive if rcv, or send request if send mode
     this.transport.bind(() => {
       Logger.info(`SipClient started. mode="${this.mode}", user="${this.fromUser}", pass="${this.password}"`);
-      // 1) REGISTER
       this._sendRegister();
 
       if (this.mode === 'rcv') {
-        // Periodic keep-alive re-REGISTER
         this.keepAliveTimer = setInterval(() => {
           Logger.debug('Re-REGISTER keep-alive...');
           this._sendRegister();
         }, RE_REGISTER_PERIOD * 1000);
       } else {
-        // "send" mode => after a small delay, send MESSAGE or INVITE
         setTimeout(() => {
           if (!this.isRegistered) {
             Logger.warn('Not yet confirmed REGISTER, sending request anyway...');
           }
-          // By default, we do MESSAGE. You can switch to INVITE if needed.
+          // Default: send MESSAGE. (Or _sendInvite if you prefer)
           this._sendMessage();
-          // Or: this._sendInvite();
         }, 3000);
       }
     });
   }
 
-  /**
-   * Gracefully close the client: clear keep-alive, close socket.
-   */
   close() {
     if (this.keepAliveTimer) {
       clearInterval(this.keepAliveTimer);
@@ -92,18 +80,14 @@ class SipClient {
   }
 
   // ----------------------------------------------------------------
-  //  Private / Internal Methods
+  // Handle Outbound Responses
   // ----------------------------------------------------------------
 
-  /**
-   * Called when we receive a SIP response (onResponse).
-   */
   _handleResponse({ statusCode, reason, messageLines }) {
     Logger.debug(`_handleResponse: ${statusCode} ${reason}`);
     const cseqLine = messageLines.find((l) => l.toLowerCase().startsWith('cseq:')) || '';
     const cseqVal  = cseqLine.slice(5).trim().toLowerCase();
 
-    // Auth challenge?
     if (statusCode === 401 || statusCode === 407) {
       Logger.warn(`Got ${statusCode}, need auth. Attempting Digest...`);
       const isProxy = (statusCode === 407);
@@ -111,26 +95,21 @@ class SipClient {
       return;
     }
 
-    // 2xx success
     if (statusCode >= 200 && statusCode < 300) {
       if (cseqVal.includes('register')) {
         Logger.info('REGISTER => 2xx => we are registered');
         this.isRegistered = true;
-
       } else if (cseqVal.includes('message')) {
         Logger.info('MESSAGE => 2xx => accepted!');
-        // "send" mode => close socket
         if (this.mode === 'send') {
           Logger.info('Closing socket after MESSAGE send.');
           this.close();
         }
-
       } else if (cseqVal.includes('invite')) {
         Logger.info('INVITE => 2xx => we must ACK');
         this._sendAckForInvite();
       }
     } else {
-      // Non-200 error
       Logger.warn(`Non-200 response: ${statusCode} ${reason}`);
       if (this.mode === 'send') {
         Logger.warn('Closing socket on error in "send" mode');
@@ -139,34 +118,65 @@ class SipClient {
     }
   }
 
-  /**
-   * Called when we receive a SIP request (onRequest).
-   */
+  // ----------------------------------------------------------------
+  // Handle Inbound Requests
+  // ----------------------------------------------------------------
+
   _handleRequest({ method, messageLines, rinfo }) {
     Logger.info(`Inbound SIP request: ${method} from ${rinfo.address}:${rinfo.port}`);
-    if (method === 'MESSAGE') {
-      // Return 200 OK
-      const ok = this._build200Ok(messageLines);
-      this.transport.sendPacket(ok, rinfo.address, rinfo.port, () => {
-        Logger.info('Sent 200 OK for inbound MESSAGE');
-      });
 
-    } else if (method === 'INVITE') {
-      // Minimal 200 OK for INVITE
-      const ok = this._buildInvite200Ok(messageLines);
-      this.transport.sendPacket(ok, rinfo.address, rinfo.port, () => {
-        Logger.info('Sent 200 OK for inbound INVITE => expect ACK from caller');
-      });
+    // We'll respond with a single "full" 200 OK for all methods
+    // If it's INVITE, you can add a Contact or body if desired
+    const ok = this._build200OkResponse(messageLines);
+    // console.log(ok)
 
-    } else {
-      // Return 200 OK for unhandled method
-      const ok = this._build200Ok(messageLines);
-      this.transport.sendPacket(ok, rinfo.address, rinfo.port);
-    }
+    this.transport.sendPacket(ok, rinfo.address, rinfo.port, () => {
+      Logger.info(`Sent full 200 OK for inbound ${method} request`);
+    });
+  }
+
+  /**
+   * Build a single "full" 200 OK. 
+   * Skips angle bracket logic; we just parse from/to, ensure the 'To' has a tag.
+   * Also includes "Server: Node-SIP-Demo".
+   */
+  _build200OkResponse(requestLines) {
+    console.log(requestLines)
+    console.log(requestLines.find(l => l.toLowerCase().startsWith('via:')))
+    const viaLine    = requestLines.find(l => l.toLowerCase().startsWith('via:'))     || '';
+    // const viaLine    = `Via: SIP/2.0/UDP ${this.localIp}:${this.localPort};branch=${this.branch}`;
+    // const viaLine = requestLines.filter((line) => {
+    //   const lower = line.toLowerCase();
+    //   return lower.startsWith('via:') && lower.includes('rport');
+    // });
+
+    let   fromLine   = requestLines.find(l => l.toLowerCase().startsWith('from:'))    || '';
+    let   toLine     = requestLines.find(l => l.toLowerCase().startsWith('to:'))      || '';
+    const callIdLine = requestLines.find(l => l.toLowerCase().startsWith('call-id:')) || '';
+    const cseqLine   = requestLines.find(l => l.toLowerCase().startsWith('cseq:'))    || '';
+
+    // If "To:" has no tag, add one
+    // if (!/tag\s*=\S+/i.test(toLine)) {
+    //   toLine = `${toLine};tag=${Math.floor(Math.random() * 9999)}`;
+    // }
+
+    const lines = [
+      'SIP/2.0 200 OK',
+      viaLine,
+      fromLine,
+      toLine,
+      callIdLine,
+      cseqLine,
+      'Server: Node-SIP-Demo',
+      'Content-Length: 0',
+      '', // blank line
+      ''
+    ];
+    return lines.join('\r\n');
   }
 
   // ----------------------------------------------------------------
-  //  Registration / Keep-alive
+  // Registration / Keep-alive
   // ----------------------------------------------------------------
 
   _sendRegister() {
@@ -185,7 +195,6 @@ class SipClient {
       cseqNumber: this.regCseq,
       contactUri: `sip:${this.fromUser}@${LOCAL_IP}:${this.localPort}`,
       expires: REGISTER_EXPIRES,
-      // No body => content-length=0
     });
 
     const msg = builder.build();
@@ -194,11 +203,10 @@ class SipClient {
   }
 
   // ----------------------------------------------------------------
-  //  MESSAGE
+  // MESSAGE
   // ----------------------------------------------------------------
 
   _sendMessage() {
-    // Build a new call-id, branch, from-tag for each message
     const msgCallId  = this._makeCallId('msg');
     const msgBranch  = this._makeBranch();
     const msgFromTag = this._makeTag();
@@ -223,7 +231,7 @@ class SipClient {
   }
 
   // ----------------------------------------------------------------
-  //  INVITE -> ACK
+  // INVITE -> ACK
   // ----------------------------------------------------------------
 
   _sendInvite() {
@@ -242,7 +250,7 @@ class SipClient {
       branch: this.inviteBranch,
       fromTag: this.inviteFromTag,
       cseqNumber: this.inviteCseq,
-      body: '', // minimal or empty body
+      body: '',
     });
 
     const inviteMsg = builder.build();
@@ -263,7 +271,7 @@ class SipClient {
       callId: this.inviteCallId,
       branch: ackBranch,
       fromTag: this.inviteFromTag,
-      cseqNumber: this.inviteCseq, // same as INVITE cseq
+      cseqNumber: this.inviteCseq,
     });
 
     const ackMsg = builder.build();
@@ -415,40 +423,7 @@ class SipClient {
   }
 
   // ----------------------------------------------------------------
-  //  Helpers for building 200 OK responses
-  // ----------------------------------------------------------------
-
-  _build200Ok(lines) {
-    const viaLine    = lines.find(l => l.toLowerCase().startsWith('via:'))     || '';
-    const callIdLine = lines.find(l => l.toLowerCase().startsWith('call-id:')) || '';
-    const fromLine   = lines.find(l => l.toLowerCase().startsWith('from:'))    || '';
-    let   toLine     = lines.find(l => l.toLowerCase().startsWith('to:'))      || '';
-    const cseqLine   = lines.find(l => l.toLowerCase().startsWith('cseq:'))    || '';
-
-    if (!/tag\s*=\S+/i.test(toLine)) {
-      toLine = toLine.replace(/>$/, `;tag=${Math.floor(Math.random() * 9999)}>`);
-    }
-
-    return [
-      'SIP/2.0 200 OK',
-      viaLine,
-      toLine,
-      fromLine,
-      callIdLine,
-      cseqLine,
-      'Content-Length: 0',
-      '',
-      ''
-    ].join('\r\n');
-  }
-
-  _buildInvite200Ok(lines) {
-    // Could add Contact or SDP for a real call flow. Minimal 200 OK here.
-    return this._build200Ok(lines);
-  }
-
-  // ----------------------------------------------------------------
-  //  Utility
+  // Utility
   // ----------------------------------------------------------------
 
   _makeCallId(prefix) {
