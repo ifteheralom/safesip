@@ -133,14 +133,10 @@ class SipClient {
   }
 
   _build200OkResponse(requestLines) {
-    console.log(requestLines)
-    console.log(requestLines.find(l => l.toLowerCase().startsWith('via:')))
-    const viaLine    = requestLines.find(l => l.toLowerCase().startsWith('via:'))     || '';
-    // const viaLine    = `Via: SIP/2.0/UDP ${this.localIp}:${this.localPort};branch=${this.branch}`;
-    // const viaLine = requestLines.filter((line) => {
-    //   const lower = line.toLowerCase();
-    //   return lower.startsWith('via:') && lower.includes('rport');
-    // });
+    // const viaLine    = requestLines.find(l => l.toLowerCase().startsWith('via:'))     || '';
+    const viaLine = requestLines.filter(line => 
+      line.toLowerCase().startsWith('via:')
+    );
 
     let   fromLine   = requestLines.find(l => l.toLowerCase().startsWith('from:'))    || '';
     let   toLine     = requestLines.find(l => l.toLowerCase().startsWith('to:'))      || '';
