@@ -17,8 +17,9 @@ class SipRequestBuilder {
     expires,
     contentType,
     authHeader,
+    protocol, // New Argument
   }) {
-    Logger.debug(`SipRequestBuilder: method=${method}, from=${fromUser}, to=${toUser}`);
+    // Logger.debug(`SipRequestBuilder: method=${method}, from=${fromUser}, to=${toUser}`);
 
     this.method      = method.toUpperCase();
     this.fromUser    = fromUser;
@@ -35,19 +36,21 @@ class SipRequestBuilder {
     this.expires     = expires;
     this.contentType = contentType || 'text/plain';
     this.authHeader  = authHeader || null;
+    this.protocol    = (protocol || 'UDP').toUpperCase();
   }
 
   build() {
-    const viaHeader    = `Via: SIP/2.0/UDP ${this.localIp}:${this.localPort};branch=${this.branch}`;
+    // Dynamic Via Header
+    const viaHeader = `Via: SIP/2.0/${this.protocol} ${this.localIp}:${this.localPort};branch=${this.branch};rport`;
+    
     const fromHeader   = `From: <sip:${this.fromUser}@${this.domain}>;tag=${this.fromTag}`;
     const callIdHeader = `Call-ID: ${this.callId}`;
     const cseqHeader   = `CSeq: ${this.cseqNumber} ${this.method}`;
     const maxForwards  = `Max-Forwards: 70`;
 
     const bodyContent  = this.body;
-    let length         = bodyContent.length; // number of bytes in the body
+    let length         = bodyContent.length; 
 
-    // Headers array
     let lines = [];
 
     switch (this.method) {
@@ -120,7 +123,6 @@ class SipRequestBuilder {
         throw new Error(`Unknown method: ${this.method}`);
     }
 
-    // Insert Authorization/Proxy-Authorization if present
     if (this.authHeader) {
       const cseqIndex = lines.findIndex((l) => l.toLowerCase().startsWith('cseq:'));
       if (cseqIndex >= 0) {
@@ -130,24 +132,10 @@ class SipRequestBuilder {
       }
     }
 
-    // single blank line after the last header line
     lines.push('');
-
-    // then the body (even if empty, as you indicated this code "works")
     lines.push(bodyContent);
 
-    // Join all lines with CRLF
-    // This does NOT add an extra blank line at the end. 
-    const message = lines.join('\r\n');
-
-    // The final SIP message might look like:
-    //   REGISTER sip:testsip SIP/2.0\r\n
-    //   Via: ...
-    //   ...
-    //   Content-Length: 10\r\n
-    //   \r\n
-    //   <body> (which might be empty)
-    return message;
+    return lines.join('\r\n');
   }
 }
 

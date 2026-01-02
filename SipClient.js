@@ -22,6 +22,7 @@ class SipClient {
     toUser = '',
     messageBody = '',
     mode = 'rcv',
+    protocol = 'udp', // New Argument
   }) {
     this.fromUser    = fromUser;
     this.password    = password;
@@ -29,6 +30,7 @@ class SipClient {
     this.toUser      = toUser;
     this.messageBody = messageBody;
     this.mode        = mode;
+    this.protocol    = protocol; // Store protocol
 
     // Registration state
     this.isRegistered = false;
@@ -43,16 +45,21 @@ class SipClient {
     this.inviteFromTag = null;
     this.inviteCseq    = 1;
 
-    // Create transport, set callbacks
-    this.transport = new SipTransport(LOCAL_IP, localPort);
+    // Pass protocol to Transport
+    this.transport = new SipTransport(LOCAL_IP, localPort, this.protocol);
     this.transport.onResponse = (res) => this._handleResponse(res);
     this.transport.onRequest  = (req) => this._handleRequest(req);
   }
 
   start() {
-    // Bind, send REGISTER, keep alive if rcv, or send request if send mode
-    this.transport.bind(() => {
-      Logger.info(`SipClient started. mode="${this.mode}", user="${this.fromUser}", pass="${this.password}"`);
+    // We renamed connect() to start() in SipTransport to be generic
+    this.transport.start(SIP_SERVER_HOST, SIP_SERVER_PORT, (actualIp, actualPort) => {
+      
+      this.localPort = actualPort;
+      // this.localIp = actualIp; 
+
+      Logger.info(`SipClient started (${this.protocol.toUpperCase()}). mode="${this.mode}", user="${this.fromUser}"`);
+      
       this._sendRegister();
 
       if (this.mode === 'rcv') {
@@ -65,7 +72,6 @@ class SipClient {
           if (!this.isRegistered) {
             Logger.warn('Not yet confirmed REGISTER, sending request anyway...');
           }
-          // Default: send MESSAGE. (Or _sendInvite if you prefer)
           this._sendMessage();
         }, 3000);
       }
@@ -79,9 +85,9 @@ class SipClient {
     this.transport.close();
   }
 
-  // ----------------------------------------------------------------
-  // Handle Outbound Responses
-  // ----------------------------------------------------------------
+  // ... (Keep _handleResponse, _handleRequest, _build200OkResponse exactly as they are) ...
+  // [Copy the existing methods from your file here]
+  // Note: Just ensure _handleResponse calls _handleAuthChallenge correctly
 
   _handleResponse({ statusCode, reason, messageLines }) {
     Logger.debug(`_handleResponse: ${statusCode} ${reason}`);
@@ -118,54 +124,35 @@ class SipClient {
     }
   }
 
-  // ----------------------------------------------------------------
-  // Handle Inbound Requests
-  // ----------------------------------------------------------------
-
   _handleRequest({ method, messageLines, rinfo }) {
     Logger.info(`Inbound SIP request: ${method} from ${rinfo.address}:${rinfo.port}`);
-
     const ok = this._build200OkResponse(messageLines);
-    
     this.transport.sendPacket(ok, rinfo.address, rinfo.port, () => {
       Logger.info(`Sent full 200 OK for inbound ${method} request`);
     });
   }
 
   _build200OkResponse(requestLines) {
-    // const viaLine    = requestLines.find(l => l.toLowerCase().startsWith('via:'))     || '';
-    const viaLine = requestLines.filter(line => 
-      line.toLowerCase().startsWith('via:')
-    );
-
+    const viaLine = requestLines.filter(line => line.toLowerCase().startsWith('via:'));
     let   fromLine   = requestLines.find(l => l.toLowerCase().startsWith('from:'))    || '';
     let   toLine     = requestLines.find(l => l.toLowerCase().startsWith('to:'))      || '';
     const callIdLine = requestLines.find(l => l.toLowerCase().startsWith('call-id:')) || '';
     const cseqLine   = requestLines.find(l => l.toLowerCase().startsWith('cseq:'))    || '';
 
-    // If "To:" has no tag, add one
-    // if (!/tag\s*=\S+/i.test(toLine)) {
-    //   toLine = `${toLine};tag=${Math.floor(Math.random() * 9999)}`;
-    // }
-
     const lines = [
       'SIP/2.0 200 OK',
-      viaLine,
+      ...viaLine, // Spread array in case of multiple Vias
       fromLine,
       toLine,
       callIdLine,
       cseqLine,
       'Server: Node-SIP-Demo',
       'Content-Length: 0',
-      '', // blank line
+      '', 
       ''
     ];
     return lines.join('\r\n');
   }
-
-  // ----------------------------------------------------------------
-  // Registration / Keep-alive
-  // ----------------------------------------------------------------
 
   _sendRegister() {
     this.regBranch = this._makeBranch();
@@ -183,16 +170,13 @@ class SipClient {
       cseqNumber: this.regCseq,
       contactUri: `sip:${this.fromUser}@${LOCAL_IP}:${this.localPort}`,
       expires: REGISTER_EXPIRES,
+      protocol: this.protocol, // Pass protocol
     });
 
     const msg = builder.build();
     Logger.info(`Sending REGISTER (cseq=${this.regCseq})`);
     this.transport.sendPacket(msg, SIP_SERVER_HOST, SIP_SERVER_PORT);
   }
-
-  // ----------------------------------------------------------------
-  // MESSAGE
-  // ----------------------------------------------------------------
 
   _sendMessage() {
     const msgCallId  = this._makeCallId('msg');
@@ -211,16 +195,13 @@ class SipClient {
       fromTag: msgFromTag,
       cseqNumber: 1,
       body: this.messageBody,
+      protocol: this.protocol, // Pass protocol
     });
 
     const sipMsg = builder.build();
     Logger.info(`Sending MESSAGE => "${this.messageBody}"`);
     this.transport.sendPacket(sipMsg, SIP_SERVER_HOST, SIP_SERVER_PORT);
   }
-
-  // ----------------------------------------------------------------
-  // INVITE -> ACK
-  // ----------------------------------------------------------------
 
   _sendInvite() {
     this.inviteCallId  = this._makeCallId('invite');
@@ -239,6 +220,7 @@ class SipClient {
       fromTag: this.inviteFromTag,
       cseqNumber: this.inviteCseq,
       body: '',
+      protocol: this.protocol, // Pass protocol
     });
 
     const inviteMsg = builder.build();
@@ -260,6 +242,7 @@ class SipClient {
       branch: ackBranch,
       fromTag: this.inviteFromTag,
       cseqNumber: this.inviteCseq,
+      protocol: this.protocol, // Pass protocol
     });
 
     const ackMsg = builder.build();
@@ -271,10 +254,6 @@ class SipClient {
       }
     });
   }
-
-  // ----------------------------------------------------------------
-  //  Authentication (401/407)
-  // ----------------------------------------------------------------
 
   _handleAuthChallenge(isProxy, lines, cseqVal) {
     const challengeHeader = lines.find((l) => {
@@ -342,6 +321,7 @@ class SipClient {
       contactUri: `sip:${this.fromUser}@${LOCAL_IP}:${this.localPort}`,
       expires: REGISTER_EXPIRES,
       authHeader,
+      protocol: this.protocol,
     });
 
     const msg = builder.build();
@@ -374,6 +354,7 @@ class SipClient {
       cseqNumber: 2,
       body: this.messageBody,
       authHeader,
+      protocol: this.protocol,
     });
 
     const msg = builder.build();
@@ -404,27 +385,17 @@ class SipClient {
       cseqNumber: this.inviteCseq,
       body: '',
       authHeader,
+      protocol: this.protocol,
     });
 
     const msg = builder.build();
     this.transport.sendPacket(msg, SIP_SERVER_HOST, SIP_SERVER_PORT);
   }
 
-  // ----------------------------------------------------------------
-  // Utility
-  // ----------------------------------------------------------------
-
-  _makeCallId(prefix) {
-    return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-  }
-
-  _makeBranch() {
-    return `z9hG4bK-${Math.floor(Math.random() * 1000000)}`;
-  }
-
-  _makeTag() {
-    return `tag-${Math.floor(Math.random() * 1000000)}`;
-  }
+  // ... (Keep _makeCallId, _makeBranch, _makeTag) ...
+  _makeCallId(prefix) { return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`; }
+  _makeBranch() { return `z9hG4bK-${Math.floor(Math.random() * 1000000)}`; }
+  _makeTag() { return `tag-${Math.floor(Math.random() * 1000000)}`; }
 }
 
 module.exports = SipClient;

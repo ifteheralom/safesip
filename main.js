@@ -1,12 +1,21 @@
 const Logger = require('./Logger');
 const SipClient = require('./SipClient');
 
-const [,, mode, localPortArg, fromUserArg, ...rest] = process.argv;
+const [,, mode, protocolArg, localPortArg, fromUserArg, ...rest] = process.argv;
 
 if (!mode || !['rcv','send'].includes(mode)) {
   Logger.error(`Usage:
-    node main.js rcv <port> <fromUser> <password>
-    node main.js send <port> <fromUser> <toUser> "msgBody" <password>`);
+    node main.js rcv <protocol> <port> <fromUser> <password>
+    node main.js send <protocol> <port> <fromUser> <toUser> "msgBody" <password>
+    
+    Example: node main.js rcv udp 5060 alice secret123`);
+  process.exit(1);
+}
+
+// Validate Protocol
+const protocol = (protocolArg || 'udp').toLowerCase();
+if (!['udp', 'tcp'].includes(protocol)) {
+  Logger.error(`Invalid protocol: "${protocolArg}". Must be "udp" or "tcp".`);
   process.exit(1);
 }
 
@@ -46,6 +55,7 @@ const client = new SipClient({
   toUser,
   messageBody: msgBody,
   mode,
+  protocol,
 });
 
 client.start();
